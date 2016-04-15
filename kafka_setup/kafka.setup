@@ -1,0 +1,41 @@
+#!/bin/bash
+
+if [ -n "$1" ]; then
+  case $1 in
+    start)
+      START=true
+    ;;
+    stop)
+      START=false
+    ;;
+    ?)
+      "ERROR: unknown argument, require (start|stop)" >&2
+    ;;
+  esac
+else
+  echo "ERROR: require argument (start|stop)" >&2
+fi
+
+cd $(dirname $0)/kafka
+
+startKafka() {
+  bin/zookeeper-server-start.sh config/zookeeper.properties &
+
+  sleep 1
+
+  for conf in $(\ls ~/kafka/server_*.properties); do
+    bin/kafka-server-start.sh $conf &
+  done
+}
+
+stopKafka() {
+  for conf in $(\ls ~/kafka/server_*.properties); do
+    bin/kafka-server-stop.sh $conf &
+  done
+
+  sleep 1
+
+  bin/zookeeper-server-stop.sh config/zookeeper.properties &
+}
+
+$START && startKafka &>>.kafka.log || stopKafka &>>.kafka.log
