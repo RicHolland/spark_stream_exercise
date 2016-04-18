@@ -41,7 +41,6 @@ object StreamingLogs {
     val start = parse(mapRDD filter (map => map contains "start"), "start")
     val end = parse(mapRDD filter (map => map contains "end"), "end")
 
-    //val joined = 
     val unMatched = for {
       (id, (optStart, optEnd)) <- start fullOuterJoin end
       if ! (optStart.isDefined) | ! (optEnd.isDefined)
@@ -50,34 +49,14 @@ object StreamingLogs {
       else (id, optEnd.get)
     }
 
-    //unMatched.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/unmatched/")
-
     val state = unMatched updateStateByKey(updateState _)
-    //state.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/state/")
-
-
-//    val toD0 = for {
-//      (id, event) <- state
-//      if event.isDefined
-//    } yield {
-//      (id, event)
-//    } union start
-
-    val piau = state union start
-    //piau.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/unioned/")
 
     val diffs = for {
-      (id, (s, e)) <- piau join end
+      (id, (s, e)) <- (state union start) join end
     } yield {
       (id, e.time - s.time)
     }
 
-    //(piau join end).saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/joined/")
-
-    //start.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/start/")
-    //end.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/end/")
-
-    //input.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/input/")
     diffs.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/results/")
 
     ssc.start()
