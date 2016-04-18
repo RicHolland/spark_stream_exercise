@@ -19,20 +19,21 @@ object StreamingLogs {
   object B extends CC[Boolean]
 
   case class Event(script: String, start_end: String, time: Long){
-    override def toString() = this.script + "," + this.start_end + "," + this.time.toString
+    override def toString() = "{" + this.script + "," + this.start_end + "," + this.time.toString + "}"
   }
 
   def main(args: Array[String]) {
     args foreach println
 
     val conf = new SparkConf().setMaster("local[*]").setAppName("Stream Test")
-    val ssc = new StreamingContext(conf, Seconds(60))
+    val ssc = new StreamingContext(conf, Seconds(20))
 
     ssc.checkpoint("spark/checkpoint/StreamingLogs")
 
-    val input = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, Map("metadata.broker.list" -> "localhost:9092"), Set(args(0)))
+    val brokers = Map("metadata.broker.list" -> "localhost:9092,localhost:9093,localhost:9094")
+    val input = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, brokers, Set(args(0)))
 
-    val mapRDD = input.filter(tup => JSON.parseFull(tup._2) match{
+    val mapRDD = input.filter(tup => JSON.parseFull(tup._2) match {
         case None => false
         case _ => true
       }).flatMap(tup => M.unapply(JSON.parseFull(tup._2).get)).cache
@@ -40,18 +41,44 @@ object StreamingLogs {
     val start = parse(mapRDD filter (map => map contains "start"), "start")
     val end = parse(mapRDD filter (map => map contains "end"), "end")
 
+    //val joined = 
+    val unMatched = for {
+      (id, (optStart, optEnd)) <- start fullOuterJoin end
+      if ! (optStart.isDefined) | ! (optEnd.isDefined)
+    } yield {
+      if (optStart.isDefined) (id, optStart.get)
+      else (id, optEnd.get)
+    }
+
+    //unMatched.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/unmatched/")
+
+    val state = unMatched updateStateByKey(updateState _)
+    //state.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/state/")
+
+
+//    val toD0 = for {
+//      (id, event) <- state
+//      if event.isDefined
+//    } yield {
+//      (id, event)
+//    } union start
+
+    val piau = state union start
+    //piau.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/unioned/")
+
     val diffs = for {
-      (id, (s, e)) <- start join end
+      (id, (s, e)) <- piau join end
     } yield {
       (id, e.time - s.time)
     }
 
-    start.saveAsTextFiles("/user/h7743735/spark/log_stream/test2/end")
-    end.saveAsTextFiles("/user/h7743735/spark/log_stream/test2/start")
+    //(piau join end).saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/joined/")
 
-    //val logTuples = input.flatMap(tup => logParse(tup._2))
+    //start.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/start/")
+    //end.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/end/")
 
-    //logTuples.map(t => t._1 + "," + t._2 + "," + t._3.toInt).saveAsTextFiles("/user/h7743735/spark/log_stream/test1/json-logs", "csv")
+    //input.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/debug/input/")
+    diffs.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/results/")
 
     ssc.start()
     ssc.awaitTermination()
@@ -69,29 +96,10 @@ object StreamingLogs {
     }
   }
 
-  /**
-  Function takes string, parses as JSON object
-  **/
-  def logParse(str: String): List[(String, Boolean, Double)] = {
-
-    
-    for {
-    /*Parse JSON string - instatiate list using result
-      If JSON Array is returned, list of list returned #But this shouldn't happen#
-      If JSON Object, list of one element (check this)
-      Cast all members of list to Map[String, Any]
-    */
-    Some(M(map)) <- List(JSON.parseFull(str))
-    //extract value for key "jobName", cast to String
-    S(jobName) = map("jobName")
-    //extract value for key "success", cast to Boolean
-    B(success) = map("success")
-    //extract value for key "exit", cast to Double
-    D(exitCode) = map("exit")
-  }
-  yield {
-    (jobName, success, exitCode)
-    //Could use own class with relevant fields
+  def updateState(in: Seq[Event], existing: Option[Event]) = in match {
+    case Nil => existing
+    case x +: Nil => if (x.start_end == "start") Option(x) else existing
+    case x +: xs +: Nil => throw new Exception("Why has this happened!!!")
   }
 
 }
