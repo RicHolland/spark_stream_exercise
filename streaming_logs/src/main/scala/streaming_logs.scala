@@ -18,7 +18,7 @@ object StreamingLogs {
   object D extends CC[Double]
   object B extends CC[Boolean]
 
-  case class Event(script: String, start_end: String, time: Long){
+  case class Event(script: String, start_end: String, time: Long, flag: Int = 0){
     override def toString() = "{" + this.script + "," + this.start_end + "," + this.time.toString + "}"
   }
 
@@ -50,6 +50,7 @@ object StreamingLogs {
     }
 
     val state = unMatched updateStateByKey(updateState _)
+    //state.saveAsTextFiles("/user/h7743735/spark/log_stream/test6/debug/state/")
 
     val diffs = for {
       (id, (s, e)) <- (state union start) join end
@@ -57,7 +58,7 @@ object StreamingLogs {
       (id, e.time - s.time)
     }
 
-    diffs.saveAsTextFiles("/user/h7743735/spark/log_stream/test3/results/")
+    diffs.saveAsTextFiles("/user/h7743735/spark/log_stream/test6/results/")
 
     ssc.start()
     ssc.awaitTermination()
@@ -76,9 +77,19 @@ object StreamingLogs {
   }
 
   def updateState(in: Seq[Event], existing: Option[Event]) = in match {
-    case Nil => existing
-    case x +: Nil => if (x.start_end == "start") Option(x) else existing
+    case Nil => if (isOver(existing)) None else existing
+    case x +: Nil => if (x.start_end == "start") Option(x)
+      else existing.flatMap(e => Some(eventOver(e)))
     case x +: xs +: Nil => throw new Exception("Why has this happened!!!")
   }
 
+  def isOver(opt: Option[Event]): Boolean = {( opt flatMap{e: Event => Some(e match {
+      case Event(_, _, _, 1) => true
+      case _ => false
+    })}).getOrElse(false)}
+
+  def eventOver(event: Event) = event match {
+    case Event(_, _, _, 1) => println("WARNING: Event " + event + " already over."); event
+    case Event(x, y, z, _) => Event(x, y, z, 1)
+  }
 }
