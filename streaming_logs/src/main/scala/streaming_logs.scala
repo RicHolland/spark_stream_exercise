@@ -31,7 +31,11 @@ object StreamingLogs {
     ssc.checkpoint("spark/checkpoint/StreamingLogs")
 
     val brokers = Map("metadata.broker.list" -> "localhost:9092,localhost:9093,localhost:9094")
-    val input = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, brokers, Set(args(0)))
+    val input = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](
+        ssc,
+        brokers,
+        Set(args(0))
+      )
 
     val mapRDD = input.filter(tup => JSON.parseFull(tup._2) match {
         case None => false
@@ -65,7 +69,10 @@ object StreamingLogs {
 
   }
 
-  def parse(rdd: DStream[Map[String, Any]], start_end: String): DStream[(Int, Event)] = {
+  def parse(
+      rdd: DStream[Map[String, Any]],
+      start_end: String
+    ): DStream[(Int, Event)] = {
     for {
       event <- rdd
       D(id) = event("id")
@@ -76,18 +83,30 @@ object StreamingLogs {
     }
   }
 
+  // Update state by key function 
   def updateState(in: Seq[Event], existing: Option[Event]) = in match {
+    // If no input this batch, check if event is over.
     case Nil => if (isOver(existing)) None else existing
+    // Seq with one element.
+    // If `start` add to state, if `end` reset flag for deletion next batch.
     case x +: Nil => if (x.start_end == "start") Option(x)
       else existing.flatMap(e => Some(eventOver(e)))
+    // Seq with multiple elements. Should not happen.
     case x +: xs +: Nil => throw new Exception("Why has this happened!!!")
   }
 
-  def isOver(opt: Option[Event]): Boolean = {( opt flatMap{e: Event => Some(e match {
-      case Event(_, _, _, 1) => true
-      case _ => false
-    })}).getOrElse(false)}
+  // TODO: Move to case class?
+  // Checks if flag indicates a finished event
+  // (i.e. one that can be removed from the state)
+  def isOver(opt: Option[Event]): Boolean = {
+    (opt flatMap{e: Event => Some(e match {
+        case Event(_, _, _, 1) => true
+        case _ => false
+      })
+    }).getOrElse(false)
+  }
 
+  // Switch flag to 1 to indicate a finished event
   def eventOver(event: Event) = event match {
     case Event(_, _, _, 1) => println("WARNING: Event " + event + " already over."); event
     case Event(x, y, z, _) => Event(x, y, z, 1)
