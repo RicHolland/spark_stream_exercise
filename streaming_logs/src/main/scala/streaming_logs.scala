@@ -19,7 +19,24 @@ object StreamingLogs {
   object B extends CC[Boolean]
 
   case class Event(script: String, start_end: String, time: Long, flag: Int = 0){
+
     override def toString() = "{" + this.script + "," + this.start_end + "," + this.time.toString + "}"
+
+    // Checks if flag indicates a finished event
+    // (i.e. one that can be removed from the state)
+    def isOver: Boolean = {
+      this match {
+        case Event(_, _, _, 1) => true
+        case _ => false
+      }
+    }
+
+    // Switch flag to 1 to indicate a finished event
+    def eventOver = this match {
+      case Event(_, _, _, 1) => println("WARNING: Event " + this + " already over."); this
+      case Event(x, y, z, _) => Event(x, y, z, 1)
+    }
+
   }
 
   def main(args: Array[String]) {
@@ -84,31 +101,15 @@ object StreamingLogs {
   }
 
   // Update state by key function 
-  def updateState(in: Seq[Event], existing: Option[Event]) = in match {
+  def updateState(in: Seq[Event], exist: Option[Event]) = in match {
     // If no input this batch, check if event is over.
-    case Nil => if (isOver(existing)) None else existing
+    case Nil => if ((exist map(_.isOver)).getOrElse(false)) None else exist
     // Seq with one element.
     // If `start` add to state, if `end` reset flag for deletion next batch.
     case x +: Nil => if (x.start_end == "start") Option(x)
-      else existing.flatMap(e => Some(eventOver(e)))
+      else exist.map(_.eventOver)
     // Seq with multiple elements. Should not happen.
     case x +: xs +: Nil => throw new Exception("Why has this happened!!!")
   }
 
-  // TODO: Move to case class?
-  // Checks if flag indicates a finished event
-  // (i.e. one that can be removed from the state)
-  def isOver(opt: Option[Event]): Boolean = {
-    (opt flatMap{e: Event => Some(e match {
-        case Event(_, _, _, 1) => true
-        case _ => false
-      })
-    }).getOrElse(false)
-  }
-
-  // Switch flag to 1 to indicate a finished event
-  def eventOver(event: Event) = event match {
-    case Event(_, _, _, 1) => println("WARNING: Event " + event + " already over."); event
-    case Event(x, y, z, _) => Event(x, y, z, 1)
-  }
 }
