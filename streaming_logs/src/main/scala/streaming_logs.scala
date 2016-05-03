@@ -59,7 +59,7 @@ object StreamingLogs {
     val diffs = for {
       (id, (s, e)) <- (state union start) join end
     } yield {
-      (id, e.time - s.time)
+      (id, e.time - s.time, s.time, e.time)
     }
 
     diffs.saveAsTextFiles("/user/h7743735/spark/log_stream/test6/results/")
